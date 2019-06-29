@@ -1,0 +1,3 @@
+[submodule "dep/replica"]
+	path = dep/replica
+	url = https://github.com/pkamenarsky/replica.git
