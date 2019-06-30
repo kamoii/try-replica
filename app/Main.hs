@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
@@ -42,14 +43,23 @@ instance Functor Counter where
   fmap f (View html a) = View html (f a)
   fmap f (StepIO io a) = StepIO io (f <$> a)
 
+instance MonadIO (Free Counter) where
+  liftIO io = Free $ StepIO io (\v -> Pure v)
+
 view' :: HTML -> Free Counter ()
 view' html = Free $ View html (Pure ())
 
 view :: ((e -> IO ()) -> HTML) -> Free Counter e
 view act = do
-  mvar <- Free $ StepIO newEmptyMVar (\v -> Pure v)
+  mvar <- liftIO newEmptyMVar
   view' $ act $ putMVar mvar
-  Free $ StepIO (takeMVar mvar) (\v -> Pure v)
+  liftIO $ takeMVar mvar
+
+updater
+  :: s
+  -> (s -> ((s -> s) -> IO ()) -> (e -> IO ()) -> HTML)
+  -> Free Counter (s, e)
+updater state act = undefined
 
 counter :: Int -> Free Counter ()
 counter i = do
