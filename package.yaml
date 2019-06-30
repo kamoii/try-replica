@@ -25,11 +25,14 @@ dependencies:
 - text
 - bytestring
 - free
+- lens
 - replica
 - websockets
 - wai-websockets
 - warp
 - containers
+- aeson
+- lens-aeson
 
 library:
   source-dirs: src

@@ -17,6 +17,8 @@ import Replica.VDOM
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Data.Map as M
 import Control.Monad.Free
+import Control.Lens hiding (view)
+import Data.Aeson.Lens
 
 main :: IO ()
 main = do
@@ -67,19 +69,42 @@ view act = do
 viewWithState
   :: MonadReplica m
   => s
-  -> (s -> ((s -> s) -> IO ()) -> (e -> IO ()) -> HTML)
+  -> (s -> (s -> IO ()) -> (e -> IO ()) -> HTML)
   -> m (s, e)
 viewWithState state act = do
   se <- view $ \f -> act state (f . Left) (f . Right)
   case se of
-    Left updater -> viewWithState (updater state) act
+    Left us -> viewWithState us act
     Right e -> pure (state, e)
 
+{-
+local state 付き?って出来るのかな？
+monad である必要はあるか？
+HTML s e
+
+monad じゃないと駄目な気がするな...
+-}
+
+{-
+名前を入力させる
+-}
+yourName :: MonadReplica m => m Text
+yourName = do
+  (name, ()) <- viewWithState "foo" $ \name update emit ->
+    [ VLeaf "input" $ M.fromList
+      [ ("type", AText "text")
+      , ("value", AText name)
+      , ("onChange", AEvent (\ev -> update $ getDOMEvent ev ^?! key "currentTarget" . key "value" . _String ))
+      ]
+    , VNode "button" (M.fromList [("onClick", AEvent (\ev -> emit ()))]) [ VText "done" ]
+    ]
+  pure name
 
 counter :: Int -> Free Counter ()
 counter i = do
+  name <- yourName
   _ <- view $ \handler ->
-    [ VText $ "count: " <> show i
+    [ VText $ name <> "'s count: " <> show i
     , VNode "button" (M.fromList [("onClick", AEvent (\ev -> handler ()))]) [ VText "increment" ]
     ]
   counter (i+1)
