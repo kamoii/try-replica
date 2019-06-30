@@ -46,20 +46,35 @@ instance Functor Counter where
 instance MonadIO (Free Counter) where
   liftIO io = Free $ StepIO io (\v -> Pure v)
 
+class MonadIO m => MonadReplica m where
+  viewHTML :: HTML -> m ()
+
+instance MonadReplica (Free Counter) where
+  viewHTML = view'
+
 view' :: HTML -> Free Counter ()
 view' html = Free $ View html (Pure ())
 
-view :: ((e -> IO ()) -> HTML) -> Free Counter e
+view :: MonadReplica m => ((e -> IO ()) -> HTML) -> m e
 view act = do
   mvar <- liftIO newEmptyMVar
-  view' $ act $ putMVar mvar
+  viewHTML $ act $ putMVar mvar
   liftIO $ takeMVar mvar
 
-updater
-  :: s
+{-
+ローカル状態？
+-}
+viewWithState
+  :: MonadReplica m
+  => s
   -> (s -> ((s -> s) -> IO ()) -> (e -> IO ()) -> HTML)
-  -> Free Counter (s, e)
-updater state act = undefined
+  -> m (s, e)
+viewWithState state act = do
+  se <- view $ \f -> act state (f . Left) (f . Right)
+  case se of
+    Left updater -> viewWithState (updater state) act
+    Right e -> pure (state, e)
+
 
 counter :: Int -> Free Counter ()
 counter i = do
