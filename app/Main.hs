@@ -81,8 +81,6 @@ viewWithState state act = do
 local state 付き?って出来るのかな？
 monad である必要はあるか？
 HTML s e
-
-monad じゃないと駄目な気がするな...
 -}
 
 {-
