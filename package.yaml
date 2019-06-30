@@ -24,7 +24,12 @@ dependencies:
 - relude
 - text
 - bytestring
+- free
 - replica
+- websockets
+- wai-websockets
+- warp
+- containers
 
 library:
   source-dirs: src
