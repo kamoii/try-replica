@@ -1,6 +1,5 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 module Main where
 
 import Prelude()
@@ -16,26 +15,38 @@ import Control.Monad.Free
 
 main :: IO ()
 main = do
-  Warp.run 8000 $ app "Counter" defaultConnectionOptions test run
+  Warp.run 8000 $ app "Counter" defaultConnectionOptions (1, test) run
 
-run :: Free Counter a -> IO (Maybe (HTML, Free Counter a, Event -> IO ()))
-run = \case
+{-
+Free で状態を持つ場合、解釈側で持つ
+-}
+run
+  :: (Int, Free Counter a)
+  -> IO (Maybe (HTML, (Int, Free Counter a), Event -> IO ()))
+run (i, v) = case v of
   Pure a -> pure Nothing
-  Free (ShowHtml html next) -> pure $ Just (html, next, (const (pure ())))
+  Free (ShowHtml html next) -> pure $ Just (html, (i, next), (const (pure ())))
+  Free (GetInt next) -> run $ (i, next i)
 
 data Counter a
   = ShowHtml HTML a
+  | GetInt (Int -> a)
 
 instance Functor Counter where
   fmap f (ShowHtml html a) = ShowHtml html (f a)
+  fmap f (GetInt a) = GetInt (f <$> a)
 
 showHtml :: HTML -> Free Counter ()
 showHtml html = Free (ShowHtml html (Pure ()))
 
+getInt :: Free Counter Int
+getInt = Free (GetInt $ \i -> Pure i)
+
 test :: Free Counter ()
 test = do
+  i <- getInt
   showHtml $
-    [ VText $ "count: "
+    [ VText $ "count: " <> show i
     , VNode "button" (M.fromList [("onClick", AEvent (\ev -> pure ()))]) [ VText "increment" ]
     ]
   pure ()
