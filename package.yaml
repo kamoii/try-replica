@@ -33,6 +33,7 @@ dependencies:
 - containers
 - aeson
 - lens-aeson
+- generic-lens
 
 library:
   source-dirs: src

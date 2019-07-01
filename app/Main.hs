@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedLabels #-}
 module Main where
 
 import Prelude()
@@ -22,6 +24,8 @@ import Control.Monad.Free
 import Control.Lens hiding (view)
 import qualified Data.Aeson as A
 import Data.Aeson.Lens
+import Data.Generics.Product
+import Data.Generics.Labels
 
 main :: IO ()
 main = do
@@ -66,6 +70,7 @@ renderHTML act = do
 {-| HTML' s e
 
 type HTML = [VDOM] ということに注意
+?? HTML s s' e に分ける？？やりすぎかな？
 -}
 render
   :: MonadReplica m
@@ -175,23 +180,35 @@ _state = AStext' id
 {-
 名前を入力させる
 -}
-yourName :: MonadReplica m => m Text
-yourName = do
-  (name, ()) <- render ""
+
+data LoginInput = LoginInput
+  { account :: Text
+  , password :: Text
+  } deriving Generic
+
+login :: MonadReplica m => m Text
+login = do
+  let _i = LoginInput "" ""
+  (i, ()) <- render _i
     $ node' "div" mempty
-        [ leaf' "input"
+        [ zoomState #account $ leaf' "input"
             [ "type" =: "text"
-            , "placeholder" =: "name"
+            , "placeholder" =: "account"
+            , "value" =: _state
+            , "onChange" =: _updateByFo (key "currentTarget" . key "value" . _String)
+            ]
+        , zoomState #password $ leaf' "input"
+            [ "type" =: "password"
             , "value" =: _state
             , "onChange" =: _updateByFo (key "currentTarget" . key "value" . _String)
             ]
         , node' "button" [ "onClick" =: _emitConst () ] [ text' "done" ]
         ]
-  pure name
+  pure $ account i
 
 counter :: Int -> Free Counter ()
 counter i = do
-  name <- yourName
+  name <- login
   _ <- renderHTML $ \handler ->
     [ VText $ name <> "'s count: " <> show i
     , VNode "button" (M.fromList [("onClick", AEvent (\ev -> handler ()))]) [ VText "increment" ]
