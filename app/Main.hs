@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections #-}
@@ -11,7 +12,7 @@
 module Main where
 
 import Prelude()
-import Relude
+import Relude hiding (withState)
 import Lib
 --
 import Network.Wai.Handler.Replica
@@ -35,6 +36,13 @@ main = do
 Free で状態を持つ場合、解釈側で持つ
 
 Event -> IO () で ちゃんと fireEvent しないと HTML 中の AEvent が呼ばれないらしい。
+
+一度目の dispatch された イベントで AEvent -> IO () で何もしなければ、二度目は
+dispatch されない？これは意図したもの？
+
+replica の駆動するところが問題か。
+replica/src/Network/Wai/Handler/Replica.hs
+90行目 一回しか dispatch 関数 (Event -> IO ()) が呼ばれない...
 -}
 run
   :: Free Counter a
@@ -129,6 +137,8 @@ data Attr' s e
   | ABool'  !Bool
   | AStext' !(s -> Text)
   | AEvent' !(s -> DOMEvent -> Either s e)
+  -- ^ 現状イベントは1stepあたり一回しかdispatchされないので発生したイベントを無視
+  -- することはできない(2019/07/01現在)。
 
 -- profunctor?かな
 -- instance Functor (Attr' s)
@@ -159,11 +169,10 @@ leaf' name attrs = HTML' $ \s u e ->
 text' :: Text -> HTML' s e
 text' t = HTML' $ \_ _ _ -> [VText t]
 
-stext' :: (s -> Text) -> HTML' s e
-stext' f = HTML' $ \s _ _ -> [VText (f s)]
+textState' :: (s -> Text) -> HTML' s e
+textState' f = HTML' $ \s _ _ -> [VText (f s)]
 
-{-
-helpers
+{-| helpers
 -}
 _updateBy :: (A.Value -> Maybe s) -> Attr' s e
 _updateBy f = AEvent' $ \s ev -> Left $ fromMaybe s (f $ getDOMEvent ev)
@@ -174,8 +183,28 @@ _updateByFo = _updateBy . preview
 _emitConst :: e -> Attr' s e
 _emitConst e = AEvent' $ \_ _ -> Right e
 
-_state :: Attr' Text e
-_state = AStext' id
+_stateValue :: Attr' Text e
+_stateValue = AStext' id
+
+{-| more high level helpers
+-}
+
+{-
+`type`, `value`, `onChange` attributes are pre-defined, but you can overwrite
+by passing attrsibutes.
+-}
+inputText :: [(Text, Attr' Text e)] -> HTML' Text e
+inputText attrs =
+  let
+    defaultAttrs =
+      [ "type" =: "text"
+      , "value" =: _stateValue
+      , "onChange" =: _updateByFo (key "currentTarget" . key "value" . _String)
+      ]
+  in leaf' "input" (defaultAttrs <> attrs)
+
+div_ :: [HTML' s e] -> HTML' s e
+div_ = node' "div" mempty
 
 {-
 名前を入力させる
@@ -190,44 +219,15 @@ login :: MonadReplica m => m Text
 login = do
   let _i = LoginInput "" ""
   (i, ()) <- render _i
-    $ node' "div" mempty
-        [ zoomState #account $ leaf' "input"
-            [ "type" =: "text"
-            , "placeholder" =: "account"
-            , "value" =: _state
-            , "onChange" =: _updateByFo (key "currentTarget" . key "value" . _String)
-            ]
-        , zoomState #password $ leaf' "input"
-            [ "type" =: "password"
-            , "value" =: _state
-            , "onChange" =: _updateByFo (key "currentTarget" . key "value" . _String)
-            ]
-        , node' "button" [ "onClick" =: _emitConst () ] [ text' "done" ]
+    $ div_
+        [ zoomState #account  $ inputText [ "placeholder" =: "account" ]
+        , zoomState #password $ inputText [ "type" =: "password" ]
+        , withState $ \s ->
+            if isInputDone s
+               then node' "button" [ "onClick" =: _emitConst () ] [ text' "done" ]
+               else node' "button" [ ] [ text' "..." ]
         ]
   pure $ account i
-
-counter :: Int -> Free Counter ()
-counter i = do
-  name <- login
-  _ <- renderHTML $ \handler ->
-    [ VText $ name <> "'s count: " <> show i
-    , VNode "button" (M.fromList [("onClick", AEvent (\ev -> handler ()))]) [ VText "increment" ]
-    ]
-  counter (i+1)
-
-{-
-type HTML = [VDOM]
-
-data VDOM
-  = VNode !T.Text !Attrs ![VDOM]
-  | VLeaf !T.Text !Attrs
-  | VText !T.Text
-
-type Attrs = M.Map T.Text Attr
-
-data Attr
-  = AText  !T.Text
-  | ABool  !Bool
-  | AEvent !(DOMEvent -> IO ())
-  | AMap   !Attrs
--}
+  where
+    isInputDone :: LoginInput -> Bool
+    isInputDone LoginInput{account, password} = account /= "" && password /= ""
