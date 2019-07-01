@@ -160,17 +160,17 @@ stext' f = HTML' $ \s _ _ -> [VText (f s)]
 {-
 helpers
 -}
-attrUpdateBy :: (A.Value -> Maybe s) -> Attr' s e
-attrUpdateBy f = AEvent' $ \s ev -> Left $ fromMaybe s (f $ getDOMEvent ev)
+_updateBy :: (A.Value -> Maybe s) -> Attr' s e
+_updateBy f = AEvent' $ \s ev -> Left $ fromMaybe s (f $ getDOMEvent ev)
 
-attrUpdateByFo :: Fold A.Value s -> Attr' s e
-attrUpdateByFo = attrUpdateBy . preview
+_updateByFo :: Fold A.Value s -> Attr' s e
+_updateByFo = _updateBy . preview
 
-attrEmitConst :: e -> Attr' s e
-attrEmitConst e = AEvent' $ \_ _ -> Right e
+_emitConst :: e -> Attr' s e
+_emitConst e = AEvent' $ \_ _ -> Right e
 
-attrState :: Attr' Text e
-attrState = AStext' id
+_state :: Attr' Text e
+_state = AStext' id
 
 {-
 名前を入力させる
@@ -182,10 +182,10 @@ yourName = do
         [ leaf' "input"
             [ "type" =: "text"
             , "placeholder" =: "name"
-            , "value" =: attrState
-            , "onChange" =: attrUpdateByFo (key "currentTarget" . key "value" . _String . to (T.take 5))
+            , "value" =: _state
+            , "onChange" =: _updateByFo (key "currentTarget" . key "value" . _String)
             ]
-        , node' "button" [ "onClick" =: attrEmitConst () ] [ text' "done" ]
+        , node' "button" [ "onClick" =: _emitConst () ] [ text' "done" ]
         ]
   pure name
 
