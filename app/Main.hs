@@ -17,6 +17,7 @@ import Network.WebSockets.Connection
 import Replica.VDOM
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Data.Map as M
+import qualified Data.Text as T
 import Control.Monad.Free
 import Control.Lens hiding (view)
 import qualified Data.Aeson as A
@@ -118,6 +119,7 @@ data Attr' s e
   | AStext' !(s -> Text)
   | AEvent' !(s -> DOMEvent -> Either s e)
 
+-- profunctor?かな
 -- instance Functor (Attr' s)
 
 instance IsString (Attr' s e) where
@@ -152,8 +154,11 @@ stext' f = HTML' $ \s _ _ -> [VText (f s)]
 {-
 helpers
 -}
-attrUpdateBy :: Traversal' A.Value s -> Attr' s e
-attrUpdateBy tr = AEvent' $ \s ev -> Left $ fromMaybe s (preview tr $ getDOMEvent ev)
+attrUpdateBy :: (A.Value -> Maybe s) -> Attr' s e
+attrUpdateBy f = AEvent' $ \s ev -> Left $ fromMaybe s (f $ getDOMEvent ev)
+
+attrUpdateByFo :: Fold A.Value s -> Attr' s e
+attrUpdateByFo = attrUpdateBy . preview
 
 attrEmitConst :: e -> Attr' s e
 attrEmitConst e = AEvent' $ \_ _ -> Right e
@@ -171,18 +176,10 @@ yourName = do
         [ leaf' "input"
             [ "type" =: "text"
             , "value" =: attrState
-            , "onChange" =: attrUpdateBy (key "currentTarget" . key "value" . _String)
+            , "onChange" =: attrUpdateByFo (key "currentTarget" . key "value" . _String . to (T.take 5))
             ]
         , node' "button" [ "onClick" =: attrEmitConst () ] [ text' "done" ]
         ]
-  -- (name, ()) <- viewWithState "foo" $ \name update emit ->
-  --   [ VLeaf "input" $ M.fromList
-  --     [ ("type", AText "text")
-  --     , ("value", AText name)
-  --     , ("onChange", AEvent (\ev -> update $ getDOMEvent ev ^?! key "currentTarget" . key "value" . _String ))
-  --     ]
-  --   , VNode "button" (M.fromList [("onClick", AEvent (\ev -> emit ()))]) [ VText "done" ]
-  --   ]
   pure name
 
 counter :: Int -> Free Counter ()
