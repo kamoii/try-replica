@@ -15,7 +15,7 @@ import Prelude()
 import Relude hiding (withState)
 import Lib
 --
-import Network.Wai.Handler.Replica
+import qualified Network.Wai.Handler.Replica as Rep
 import Network.WebSockets.Connection
 import Replica.VDOM
 import qualified Network.Wai.Handler.Warp as Warp
@@ -30,7 +30,7 @@ import Data.Generics.Labels
 
 main :: IO ()
 main = do
-  Warp.run 8000 $ app "Counter" defaultConnectionOptions (counter 1) run
+  Warp.run 8000 $ Rep.app "Counter" defaultConnectionOptions app run
 
 {-
 Free で状態を持つ場合、解釈側で持つ
@@ -46,10 +46,10 @@ replica/src/Network/Wai/Handler/Replica.hs
 -}
 run
   :: Free Counter a
-  -> IO (Maybe (HTML, Free Counter a, Event -> IO ()))
+  -> IO (Maybe (HTML, Free Counter a, Rep.Event -> IO ()))
 run v = case v of
   Pure a -> pure Nothing
-  Free (View html next) -> pure $ Just (html, next, \event -> fireEvent html (evtPath event) (evtType event) (DOMEvent $ evtEvent event))
+  Free (View html next) -> pure $ Just (html, next, \event -> fireEvent html (Rep.evtPath event) (Rep.evtType event) (DOMEvent $ Rep.evtEvent event))
   Free (StepIO io next') -> io >>= run . next'
 
 data Counter a
@@ -98,6 +98,12 @@ render state html = _render state (unHTML' html)
         Left us -> _render us act
         Right e -> pure (state, e)
 
+render_
+  :: MonadReplica m
+  => HTML' () e
+  -> m e
+render_ html = snd <$> render () html
+
 -- 状態を更新しても効果なし
 renderNoBlock
   :: MonadReplica m
@@ -106,6 +112,9 @@ renderNoBlock
   -> m ()
 renderNoBlock state html =
   renderHTMLNoBlock $ (unHTML' html) state (const $ pure ()) (const $ pure ())
+
+renderNoBlock_ :: MonadReplica m => HTML' () Void -> m ()
+renderNoBlock_ = renderNoBlock ()
 
 newtype HTML' s e = HTML'
   { unHTML' :: (s -> (s -> IO ()) -> (e -> IO ()) -> HTML)
@@ -206,28 +215,52 @@ inputText attrs =
 div_ :: [HTML' s e] -> HTML' s e
 div_ = node' "div" mempty
 
-{-
-名前を入力させる
--}
+span :: [(Text, Attr' s e)] -> [HTML' s e] -> HTML' s e
+span = node' "span"
 
+
+-- | Test app
+
+app :: MonadReplica m => m ()
+app = do
+  acc <- login
+  renderNoBlock_ $ div_ [ text' $ "Hello, " <> acc <> "!!" ]
+
+
+-- | Stupid Login Page
 data LoginInput = LoginInput
   { account :: Text
   , password :: Text
   } deriving Generic
 
 login :: MonadReplica m => m Text
-login = do
-  let _i = LoginInput "" ""
-  (i, ()) <- render _i
-    $ div_
-        [ zoomState #account  $ inputText [ "placeholder" =: "account" ]
+login = flow False (LoginInput "" "")
+  where
+    flow :: MonadReplica m =>  Bool -> LoginInput -> m Text
+    flow hasError _i = do
+      (i, _) <- render _i $ view hasError
+      if validInput i
+         then pure $ account i
+         else flow True i { password = "" }
+
+    view :: Bool -> HTML' LoginInput ()
+    view hasError =
+      div_
+        [ if hasError
+          then div_ [ span [ "style" =: "color:red;" ] [ text' "ログインに失敗しました!" ] ]
+          else mempty
+        , zoomState #account  $ inputText [ "placeholder" =: "account" ]
         , zoomState #password $ inputText [ "type" =: "password" ]
         , withState $ \s ->
             if isInputDone s
                then node' "button" [ "onClick" =: _emitConst () ] [ text' "done" ]
                else node' "button" [ ] [ text' "..." ]
         ]
-  pure $ account i
-  where
+
     isInputDone :: LoginInput -> Bool
-    isInputDone LoginInput{account, password} = account /= "" && password /= ""
+    isInputDone LoginInput{account, password} =
+      account /= "" && password /= ""
+
+    validInput :: LoginInput -> Bool
+    validInput LoginInput{account, password} =
+      account == "foo" && password == "bar"
