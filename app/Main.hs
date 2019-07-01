@@ -81,7 +81,28 @@ viewWithState state act = do
 local state 付き?って出来るのかな？
 monad である必要はあるか？
 HTML s e
+
+type HTML = [VDOM] ということに注意
 -}
+newtype HTML' s e = HTML'
+  { unHTML' :: (s -> (s -> IO ()) -> (e -> IO ()) -> HTML)
+  }
+
+instance Functor (HTML' s) where
+  fmap f (HTML' g) = HTML' $ \s u e -> g s u (e . f)
+
+instance Semigroup (HTML' s e) where
+  (HTML' a) <> (HTML' b) = HTML' $ \s u e -> (a s u e) <> (b s u e)
+
+instance Monoid (HTML' s e) where
+  mempty = HTML' $ \_ _ _ -> []
+
+-- ある状態を取り出して条件分岐とかしたい場合など
+withState :: (s -> HTML' s e) -> HTML' s e
+withState f = HTML' $ \s u e -> (unHTML' (f s)) s u e
+
+zoomState :: Lens' s s' -> HTML' s' e -> HTML' s e
+zoomState = undefined
 
 {-
 名前を入力させる
