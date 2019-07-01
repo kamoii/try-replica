@@ -212,12 +212,17 @@ inputText attrs =
       ]
   in leaf' "input" (defaultAttrs <> attrs)
 
+-- 要素の名前付け法則を決めないと
+-- button のように onClick を付けるのがデフォのやつもある
+
 div_ :: [HTML' s e] -> HTML' s e
 div_ = node' "div" mempty
 
 span :: [(Text, Attr' s e)] -> [HTML' s e] -> HTML' s e
 span = node' "span"
 
+button_ :: Text -> HTML' s ()
+button_ t = node' "button" [ "onClick" =: _emitConst () ] [ text' t ]
 
 -- | Test app
 
@@ -253,7 +258,7 @@ login = flow False (LoginInput "" "")
         , zoomState #password $ inputText [ "type" =: "password" ]
         , withState $ \s ->
             if isInputDone s
-               then node' "button" [ "onClick" =: _emitConst () ] [ text' "done" ]
+               then button_ "done"
                else node' "button" [ ] [ text' "..." ]
         ]
 
