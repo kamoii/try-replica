@@ -102,7 +102,7 @@ withState :: (s -> HTML' s e) -> HTML' s e
 withState f = HTML' $ \s u e -> (unHTML' (f s)) s u e
 
 zoomState :: Lens' s s' -> HTML' s' e -> HTML' s e
-zoomState = undefined
+zoomState l (HTML' f) = HTML' $ \s u e -> f (s ^. l) (\s' -> u $ s & l .~ s') e
 
 {-
 名前を入力させる
