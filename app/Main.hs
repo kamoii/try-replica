@@ -52,41 +52,47 @@ instance MonadIO (Free Counter) where
   liftIO io = Free $ StepIO io (\v -> Pure v)
 
 class MonadIO m => MonadReplica m where
-  viewHTML :: HTML -> m ()
+  renderHTMLNoBlock :: HTML -> m ()
 
 instance MonadReplica (Free Counter) where
-  viewHTML html = Free $ View html (Pure ())
+  renderHTMLNoBlock html = Free $ View html (Pure ())
 
-viewBlock :: MonadReplica m => ((e -> IO ()) -> HTML) -> m e
-viewBlock act = do
+renderHTML :: MonadReplica m => ((e -> IO ()) -> HTML) -> m e
+renderHTML act = do
   mvar <- liftIO newEmptyMVar
-  viewHTML $ act $ putMVar mvar
+  renderHTMLNoBlock $ act $ putMVar mvar
   liftIO $ takeMVar mvar
-
-{-
-ローカル状態？
--}
-viewWithState
-  :: MonadReplica m
-  => s
-  -> (s -> (s -> IO ()) -> (e -> IO ()) -> HTML)
-  -> m (s, e)
-viewWithState state act = do
-  se <- viewBlock $ \f -> act state (f . Left) (f . Right)
-  case se of
-    Left us -> viewWithState us act
-    Right e -> pure (state, e)
 
 {-| HTML' s e
 
 type HTML = [VDOM] ということに注意
 -}
-view'
+render
   :: MonadReplica m
   => s
   -> HTML' s e
   -> m (s, e)
-view' state html = viewWithState state (unHTML' html)
+render state html = _render state (unHTML' html)
+  where
+    _render
+      :: MonadReplica m
+      => s
+      -> (s -> (s -> IO ()) -> (e -> IO ()) -> HTML)
+      -> m (s, e)
+    _render state act = do
+      se <- renderHTML $ \f -> act state (f . Left) (f . Right)
+      case se of
+        Left us -> _render us act
+        Right e -> pure (state, e)
+
+-- 状態を更新しても効果なし
+renderNoBlock
+  :: MonadReplica m
+  => s
+  -> HTML' s Void
+  -> m ()
+renderNoBlock state html =
+  renderHTMLNoBlock $ (unHTML' html) state (const $ pure ()) (const $ pure ())
 
 newtype HTML' s e = HTML'
   { unHTML' :: (s -> (s -> IO ()) -> (e -> IO ()) -> HTML)
@@ -171,10 +177,11 @@ attrState = AStext' id
 -}
 yourName :: MonadReplica m => m Text
 yourName = do
-  (name, ()) <- view' ""
+  (name, ()) <- render ""
     $ node' "div" mempty
         [ leaf' "input"
             [ "type" =: "text"
+            , "placeholder" =: "name"
             , "value" =: attrState
             , "onChange" =: attrUpdateByFo (key "currentTarget" . key "value" . _String . to (T.take 5))
             ]
@@ -185,7 +192,7 @@ yourName = do
 counter :: Int -> Free Counter ()
 counter i = do
   name <- yourName
-  _ <- viewBlock $ \handler ->
+  _ <- renderHTML $ \handler ->
     [ VText $ name <> "'s count: " <> show i
     , VNode "button" (M.fromList [("onClick", AEvent (\ev -> handler ()))]) [ VText "increment" ]
     ]
