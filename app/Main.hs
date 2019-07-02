@@ -12,7 +12,7 @@
 module Main where
 
 import Prelude()
-import Relude hiding (withState)
+import P
 import Lib
 --
 import qualified Network.Wai.Handler.Replica as Rep
@@ -22,7 +22,7 @@ import qualified Network.Wai.Handler.Warp as Warp
 import qualified Data.Map as M
 import qualified Data.Text as T
 import Control.Monad.Free
-import Control.Lens hiding (view)
+import Control.Lens
 import qualified Data.Aeson as A
 import Data.Aeson.Lens
 import Data.Generics.Product
@@ -79,6 +79,7 @@ renderHTML act = do
 
 type HTML = [VDOM] ということに注意
 ?? HTML s s' e に分ける？？やりすぎかな？
+s 使わせたくないなら forall s. HTML s Void なのか？
 -}
 render
   :: MonadReplica m
@@ -104,6 +105,8 @@ render_
   -> m e
 render_ html = snd <$> render () html
 
+
+-- TODO: NoBlock くそ見たいな名前だな...
 -- 状態を更新しても効果なし
 renderNoBlock
   :: MonadReplica m
@@ -128,6 +131,11 @@ instance Semigroup (HTML' s e) where
 
 instance Monoid (HTML' s e) where
   mempty = HTML' $ \_ _ _ -> mempty
+
+{-
+IsString は定義しないがいいかな？
+text が必要なところとそうでないところが混在するとややこしい
+-}
 
 -- ある状態を取り出して条件分岐とかしたい場合など
 withState :: (s -> HTML' s e) -> HTML' s e
@@ -226,9 +234,14 @@ button_ t = node' "button" [ "onClick" =: _emitConst () ] [ text' t ]
 
 -- | Test app
 
+{-
+FLow という用語を使うか？
+なかで表示しつつ最終的に値を
+-}
+
 app :: MonadReplica m => m ()
 app = do
-  acc <- login
+  acc <- loginFlow
   renderNoBlock_ $ div_ [ text' $ "Hello, " <> acc <> "!!" ]
 
 
@@ -238,18 +251,17 @@ data LoginInput = LoginInput
   , password :: Text
   } deriving Generic
 
-login :: MonadReplica m => m Text
-login = flow False (LoginInput "" "")
+loginFlow :: MonadReplica m => m Text
+loginFlow =
+  untilRight (False, LoginInput "" "") $ \(hasError, _i) -> do
+    (i, _) <- render _i $ html hasError
+    pure $ if validInput i
+      then Right $ account i
+      else Left (True, i { password = "" })
   where
-    flow :: MonadReplica m =>  Bool -> LoginInput -> m Text
-    flow hasError _i = do
-      (i, _) <- render _i $ view hasError
-      if validInput i
-         then pure $ account i
-         else flow True i { password = "" }
 
-    view :: Bool -> HTML' LoginInput ()
-    view hasError =
+    html :: Bool -> HTML' LoginInput ()
+    html hasError =
       div_
         [ if hasError
           then div_ [ span [ "style" =: "color:red;" ] [ text' "ログインに失敗しました!" ] ]
@@ -258,8 +270,8 @@ login = flow False (LoginInput "" "")
         , zoomState #password $ inputText [ "type" =: "password" ]
         , withState $ \s ->
             if isInputDone s
-               then button_ "done"
-               else node' "button" [ ] [ text' "..." ]
+               then button_ "login"
+               else node' "button" [ "disabled" =: ABool' True ] [ text' "login" ]
         ]
 
     isInputDone :: LoginInput -> Bool
